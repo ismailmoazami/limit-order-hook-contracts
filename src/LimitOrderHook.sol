@@ -27,8 +27,9 @@ contract LimitOrderHook is BaseHook, ERC1155{
     using FixedPointMathLib for uint256;
 
     // Events
-    event OrderPlaced(address user, PoolKey key, int24 tickToSell, bool zeroForOne, uint256 inputAmount);
-    event OrderCanceled(address user, PoolKey key, int24 tickToSell, bool zeroForOne, uint256 inputAmount);
+    event OrderPlaced(address user, PoolKey key, int24 tick, bool zeroForOne, uint256 inputAmount);
+    event OrderCanceled(address user, PoolKey key, int24 tick, bool zeroForOne, uint256 inputAmount);
+    event TokensClaimed(address user, PoolKey key, int24 tick, bool zeroForOne, uint256 outputAmount);
 
     // Errors
 	error InvalidOrder();
@@ -97,14 +98,14 @@ contract LimitOrderHook is BaseHook, ERC1155{
         int24 tick = getLowerUsableTick(_tickToSell, _key.tickSpacing); 
         pendingOrders[_key.toId()][tick][_zeroForOne] += _inputAmount; 
 
-        uint256 positionId = getPositionId(_key, _tickToSell, _zeroForOne);
+        uint256 positionId = getPositionId(_key, tick, _zeroForOne);
         claimTokensSupply[positionId] += _inputAmount;
         _mint(msg.sender, positionId, _inputAmount, "");
 
         address tokenToSell = _zeroForOne ? Currency.unwrap(_key.currency0) : Currency.unwrap(_key.currency1);
         IERC20(tokenToSell).transferFrom(msg.sender, address(this), _inputAmount);
 
-        emit OrderPlaced(msg.sender, _key, _tickToSell, _zeroForOne, _inputAmount);
+        emit OrderPlaced(msg.sender, _key, tick, _zeroForOne, _inputAmount);
         return tick;    
     }
 
@@ -112,7 +113,7 @@ contract LimitOrderHook is BaseHook, ERC1155{
     external 
     {
         int24 tick = getLowerUsableTick(_tickToSell, _key.tickSpacing); 
-        uint256 positionId = getPositionId(_key, _tickToSell, _zeroForOne); 
+        uint256 positionId = getPositionId(_key, tick, _zeroForOne); 
 
         uint256 balanceOfUser = balanceOf(msg.sender, positionId);
         if(balanceOfUser < _amountToCancel){
@@ -124,8 +125,36 @@ contract LimitOrderHook is BaseHook, ERC1155{
 
         address token = _zeroForOne ? Currency.unwrap(_key.currency0) : Currency.unwrap(_key.currency1);
         IERC20(token).transfer(msg.sender, _amountToCancel);
-        emit OrderCanceled(msg.sender, _key, _tickToSell, _zeroForOne, _amountToCancel);
+        emit OrderCanceled(msg.sender, _key, tick, _zeroForOne, _amountToCancel);
 
+    }
+
+    function redeem(PoolKey calldata _key, int24 _tickToSell, bool _zeroForOne, uint256 _inputAmountToRedeem)
+    external 
+    {
+        int24 tick = getLowerUsableTick(_tickToSell, _key.tickSpacing);
+        uint256 positionId = getPositionId(_key, tick, _zeroForOne);
+
+        uint256 totalOutputTokens = claimableOutputTokens[positionId];
+        if(totalOutputTokens == 0) {
+            revert NothingToClaim();
+        }
+
+        uint256 balanceOfUser = balanceOf(msg.sender, positionId);
+        if(balanceOfUser < _inputAmountToRedeem) {
+            revert NotEnoughToClaim();
+        }
+        uint256 totalInputTokens = claimTokensSupply[positionId];
+        uint256 amountToRedeem = _inputAmountToRedeem.mulDivDown(totalOutputTokens, totalInputTokens);
+
+        claimableOutputTokens[positionId] -= amountToRedeem;
+        claimTokensSupply[positionId] -= _inputAmountToRedeem;
+        _burn(msg.sender, positionId, _inputAmountToRedeem);
+
+        Currency token = _zeroForOne ? _key.currency1 : _key.currency0;
+        token.transfer(msg.sender, amountToRedeem);
+
+        emit TokensClaimed(msg.sender, _key, tick, _zeroForOne, amountToRedeem);
     }
 
     function getPositionId(PoolKey calldata _key, int24 _tick, bool _zeroForOne) 
