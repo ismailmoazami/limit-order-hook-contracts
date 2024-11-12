@@ -25,7 +25,7 @@ contract LimitOrderHook is BaseHook, ERC1155{
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using FixedPointMathLib for uint256;
-
+ 
     // Events
     event OrderPlaced(address user, PoolKey key, int24 tick, bool zeroForOne, uint256 inputAmount);
     event OrderCanceled(address user, PoolKey key, int24 tick, bool zeroForOne, uint256 inputAmount);
@@ -157,6 +157,43 @@ contract LimitOrderHook is BaseHook, ERC1155{
         emit TokensClaimed(msg.sender, _key, tick, _zeroForOne, amountToRedeem);
     }
 
+    function executeOrder(PoolKey calldata _key, int24 _tick, bool _zeroForOne, uint256 _inputAmount) 
+    internal 
+    {
+        
+        BalanceDelta delta = swapAndSettleBalances(
+            _key, 
+            IPoolManager.SwapParams({
+                zeroForOne: _zeroForOne,
+                amountSpecified: -int256(_inputAmount),
+                sqrtPriceLimitX96: _zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            })
+            );
+
+        pendingOrders[_key.toId()][_tick][_zeroForOne] -= _inputAmount;
+        uint256 positionId = getPositionId(_key, _tick, _zeroForOne);
+        uint256 outputAmount = _zeroForOne ? uint256(int256(delta.amount1())) : uint256(int256(delta.amount0()));
+        
+        claimableOutputTokens[positionId] += outputAmount;
+
+    }
+
+    function swapAndSettleBalances(PoolKey calldata _key, IPoolManager.SwapParams memory _params)
+    internal 
+    returns(BalanceDelta)
+    {
+
+        BalanceDelta delta = poolManager.swap(_key, _params, "");
+        if(_params.zeroForOne) {
+            _settle(_key.currency0, uint128(-delta.amount0()));
+            _take(_key.currency1, uint128(delta.amount1()));
+        } else {
+            _settle(_key.currency1, uint128(-delta.amount1()));
+            _take(_key.currency0, uint128(delta.amount0()));
+        }
+        return delta;
+    }
+
     function getPositionId(PoolKey calldata _key, int24 _tick, bool _zeroForOne) 
     public 
     pure 
@@ -177,5 +214,15 @@ contract LimitOrderHook is BaseHook, ERC1155{
         }
         return intervals * _tickSpacing;
     } 
+
+    function _settle(Currency _currency, uint128 _amount) internal {
+        poolManager.sync(_currency);
+        _currency.transfer(address(poolManager), _amount);
+        poolManager.settle();
+    }
+
+    function _take(Currency _currency, uint128 _amount) internal {
+        poolManager.take(_currency, address(this), _amount);
+    }
 
 }
