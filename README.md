@@ -1,66 +1,51 @@
-## Foundry
+# Limit Order Hook Contracts
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This repository implements a Limit Order Hook for Uniswap v4, enabling users to place, cancel, and execute limit orders directly within Uniswap pools. The hook leverages Uniswap v4's hook system to facilitate order placement, cancellation, and execution based on specified price ticks.
 
-Foundry consists of:
+## Features
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- **Order Placement**: Users can place limit orders by specifying the desired price tick and amount.
+- **Order Cancellation**: Users can cancel their pending orders before execution.
+- **Order Execution**: Orders are executed when market conditions meet the specified price tick.
+- **Token Redemption**: After order execution, users can redeem their tokens.
 
-## Documentation
+## Getting Started
 
-https://book.getfoundry.sh/
+1. **Clone the Repository**:
 
+    ```bash
+   git clone https://github.com/ismailmoazami/limit-order-hook-contracts.git
+2. **Install Dependencies**:
+   
+    ```bash
+   curl -L https://foundry.paradigm.xyz | bash
+   foundryup
+3. **Install Project Dependencies**:
+Navigate to the project directory and install the necessary dependencies:
+    
+    ```bash
+    cd limit-order-hook-contracts
+    forge install
+4. **Compile Contracts**:
+Compile the contracts using Forge:
+    ```bash
+    forge build
+5. **Run Tests**:
+Execute the test suite to ensure everything is functioning correctly:
+    ```bash 
+    forge test
 ## Usage
+Placing an Order:
 
-### Build
+Call the placeOrder function with the appropriate parameters to place a limit order.
 
-```shell
-$ forge build
-```
+Cancelling an Order:
 
-### Test
+Use the cancelOrder function to cancel a pending order before execution.
 
-```shell
-$ forge test
-```
+Redeeming Tokens:
 
-### Format
+After order execution, call the redeem function to claim your tokens.
 
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+## License
+This project is licensed under the MIT License. 
