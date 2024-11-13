@@ -157,4 +157,40 @@ contract LimitOrderHookTest is Test, Deployers {
 
     }
 
+    function test_can_execute_zeroForOne_order() external {
+        int24 tickToSell = 100;
+        bool zeroForOne = true;
+        uint256 amount = 1e18;
+
+        int24 usableOrderTick = hook.placeOrder(key, tickToSell, zeroForOne, amount);
+
+        // a swap by another person to move up the tick(other direction(one for zero))
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false, 
+            amountSpecified: -1 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1 
+        });
+
+        PoolSwapTest.TestSettings memory testSettings = PoolSwapTest.TestSettings({
+            takeClaims: false, 
+            settleUsingBurn: false
+        });
+        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+
+        uint256 pendingInputAmountForOrder = hook.pendingOrders(key.toId(), usableOrderTick, zeroForOne);
+        assertEq(pendingInputAmountForOrder, 0);
+
+        uint256 positionId = hook.getPositionId(key, usableOrderTick, zeroForOne);
+        uint256 claimableOutputTokens = hook.claimableOutputTokens(positionId);
+        uint256 hookContractToken1Balance = token1.balanceOf(address(hook));
+        assertEq(claimableOutputTokens, hookContractToken1Balance);
+
+
+        uint256 beforeClaimBalance = token1.balanceOfSelf();
+        hook.redeem(key, usableOrderTick, zeroForOne, amount);
+        uint256 afterClaimBalance = token1.balanceOfSelf();
+
+        assertEq(afterClaimBalance - beforeClaimBalance, claimableOutputTokens);
+    }
+
 }

@@ -46,6 +46,7 @@ contract LimitOrderHook is BaseHook, ERC1155{
 
     mapping(uint256 positionId => uint256 claimsSupply) public claimTokensSupply;
     mapping(uint256 positionId => uint256 outputClaimable) public claimableOutputTokens;
+    mapping(PoolId poolId => int24 lastTick) public lastKnownTick;
 
     constructor(IPoolManager _manager, string memory _uri) BaseHook(_manager) ERC1155(_uri) {}
 
@@ -74,22 +75,67 @@ contract LimitOrderHook is BaseHook, ERC1155{
                 });
         }
 
-    function afterInitialize(address, PoolKey calldata, uint160, int24) 
+    function afterInitialize(address, PoolKey calldata _key, uint160, int24 _tick) 
         external 
         override 
         onlyPoolManager
         returns (bytes4)
     {
+        lastKnownTick[_key.toId()] = _tick;
         return(this.afterInitialize.selector);        
     }
 
-    function afterSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata) 
+    function afterSwap(address sender, PoolKey calldata _key, IPoolManager.SwapParams calldata _params, BalanceDelta, bytes calldata) 
         external
         override
         onlyPoolManager
         returns (bytes4, int128)
-    {
+    {   
+
+        if(sender == address(this)) {
+            return(this.afterSwap.selector, 0);
+        }
+        bool flag = true;
+        int24 currentTick;
+
+        while(flag) {
+
+            (flag, currentTick) = tryExecutingOrders(
+                _key,
+                !_params.zeroForOne
+            );
+        }
+
+        lastKnownTick[_key.toId()] = currentTick;
         return(this.afterSwap.selector, 0);
+    }
+
+    function tryExecutingOrders(PoolKey calldata _key, bool _zeroForOne) internal returns(bool flag, int24 currentTick){
+        
+        (, currentTick, , ) = poolManager.getSlot0(_key.toId());
+        int24 lastTick = lastKnownTick[_key.toId()];
+
+        int24 tickSpacing = _key.tickSpacing;
+        if(currentTick > lastTick) {
+
+            for(int24 tick = lastTick; tick < currentTick; tick += tickSpacing) {
+                uint256 amountToSell = pendingOrders[_key.toId()][tick][_zeroForOne];
+                if(amountToSell > 0) {
+                    executeOrder(_key, tick, _zeroForOne, amountToSell);
+                    return(true, currentTick);
+                }
+            } 
+        } else {
+            for(int24 tick = lastTick; tick > currentTick; tick -= tickSpacing) {
+                uint256 amountToSell = pendingOrders[_key.toId()][tick][_zeroForOne];
+                if(amountToSell > 0) {
+                    executeOrder(_key, tick, _zeroForOne, amountToSell);
+                    return(true, currentTick);
+                }
+            }
+            }
+        return(false, currentTick);
+        
     }
 
     function placeOrder(PoolKey calldata _key, int24 _tickToSell, bool _zeroForOne, uint256 _inputAmount) 
@@ -173,7 +219,7 @@ contract LimitOrderHook is BaseHook, ERC1155{
         pendingOrders[_key.toId()][_tick][_zeroForOne] -= _inputAmount;
         uint256 positionId = getPositionId(_key, _tick, _zeroForOne);
         uint256 outputAmount = _zeroForOne ? uint256(int256(delta.amount1())) : uint256(int256(delta.amount0()));
-        
+
         claimableOutputTokens[positionId] += outputAmount;
 
     }
